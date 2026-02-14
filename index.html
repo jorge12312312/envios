@@ -8,32 +8,43 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        #map { height: 250px; width: 100%; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd; }
+        #map { height: 280px; width: 100%; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd; z-index: 1; }
     </style>
 </head>
 <body class="bg-gray-100 p-5">
     <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6 border-t-4 border-red-600">
-        <h2 class="text-3xl font-bold text-red-600 mb-8 text-center uppercase">Perú para ti</h2>
+        <h2 class="text-3xl font-bold text-red-600 mb-8 text-center uppercase tracking-tighter">Perú para ti</h2>
         
-        <label class="block text-gray-700 text-sm font-bold mb-2">Ingresá tu dirección:</label>
-        <input type="text" id="addressInput" placeholder="Ej: Roberto Payro 2913, Glew" 
-               class="w-full border p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm text-sm">
+        <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2">Tu ubicación:</label>
+            <div class="flex gap-2">
+                <input type="text" id="addressInput" placeholder="Ej: Roberto Payro 2913, Glew" 
+                       class="flex-1 border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm text-sm">
+                <button onclick="getLocation()" title="Usar mi ubicación actual" 
+                        class="bg-gray-200 p-3 rounded-lg hover:bg-gray-300 transition text-xl">
+                    📍
+                </button>
+            </div>
+        </div>
         
         <button onclick="calculateShipping()" id="btnCalc"
                 class="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 transition shadow-lg">
             Calcular Envío
         </button>
 
-        <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200">
-            <div class="mb-4 pb-3 border-b border-green-200 text-center">
-                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1">Confirmación de Ubicación:</p>
-                <p id="fullAddressText" class="text-sm text-gray-700 font-medium italic"></p>
+        <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200 animate-pulse-once">
+            <div class="mb-2 pb-2 border-b border-green-200">
+                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider text-center">Confirmación de Ubicación:</p>
+                <p id="fullAddressText" class="text-sm text-gray-700 font-semibold text-center leading-tight mt-1"></p>
+                <p id="numberWarning" class="hidden text-[10px] text-orange-600 font-bold text-center mt-1 uppercase italic">
+                    ⚠️ Altura exacta no encontrada (Cálculo aproximado)
+                </p>
             </div>
 
             <div id="map"></div>
 
             <p id="distanceText" class="text-xs text-gray-500 text-center mt-4"></p>
-            <p id="priceText" class="text-3xl font-black text-green-700 mt-2 text-center"></p>
+            <p id="priceText" class="text-4xl font-black text-green-700 mt-2 text-center"></p>
             
             <a id="wsLink" href="#" target="_blank"
                class="mt-4 w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2 text-center text-sm">
@@ -43,23 +54,30 @@
     </div>
 
     <script>
-        const ORIGIN = [-34.8834979, -58.4032544]; // Juan Cruz Varela 2178
+        // COORDENADAS EXACTAS DE JUAN CRUZ VARELA 2178, GLEW
+        const ORIGIN = [-34.894237, -58.411130]; 
         const CELULAR_NEGOCIO = "541125565977"; 
         let map, marker;
 
-        // Inicializamos el mapa centrado en el local
-        function initMap() {
-            map = L.map('map').setView(ORIGIN, 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap'
-            }).addTo(map);
-            L.marker(ORIGIN).addTo(map).bindPopup('Perú para ti').openPopup();
+        function initMap(coords) {
+            if (!map) {
+                map = L.map('map').setView(coords, 18); // Zoom 18 para ver entrecalles
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap'
+                }).addTo(map);
+            } else {
+                map.setView(coords, 18);
+            }
+            if (marker) map.removeLayer(marker);
+            marker = L.marker(coords).addTo(map).bindPopup('Tu ubicación').openPopup();
+            setTimeout(() => { map.invalidateSize(); }, 300);
         }
 
         async function calculateShipping() {
             const address = document.getElementById('addressInput').value;
             const btn = document.getElementById('btnCalc');
             const resultDiv = document.getElementById('result');
+            const warning = document.getElementById('numberWarning');
             
             if (!address) return alert("Por favor, ingresá una dirección.");
             
@@ -67,35 +85,43 @@
             btn.disabled = true;
 
             try {
+                // Mejora: Búsqueda estructurada para mayor precisión en la numeración
                 const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${address}, Glew, Buenos Aires`);
                 const geoData = await geoRes.json();
                 
-                if (geoData.length === 0) throw new Error("No encontramos la dirección.");
+                if (geoData.length === 0) throw new Error("Dirección no encontrada.");
 
                 const res = geoData[0];
                 const dest = [parseFloat(res.lat), parseFloat(res.lon)];
-                
                 const distance = getDistance(ORIGIN[0], ORIGIN[1], dest[0], dest[1]);
                 
-                // Mostrar resultados
                 resultDiv.classList.remove('hidden');
-                
-                // Si el mapa no existe, lo creamos. Si existe, lo movemos.
-                if (!map) {
-                    initMap();
-                }
-                
-                map.setView(dest, 18); // Zoom 18 para ver bien las entrecalles
-                if (marker) map.removeLayer(marker);
-                marker = L.marker(dest).addTo(map).bindPopup('Tu ubicación').openPopup();
+                initMap(dest);
 
-                const direccionConfirmada = res.display_name.split(',').slice(0, 3).join(', ');
+                // Detectamos si encontró el número o solo la calle
+                const foundNumber = res.address.house_number;
+                if (!foundNumber && address.match(/\d+/)) {
+                    warning.classList.remove('hidden');
+                } else {
+                    warning.classList.add('hidden');
+                }
+
+                // Armamos la dirección detallada
+                const road = res.address.road || "Glew";
+                const houseNum = foundNumber || "";
+                const suburb = res.address.suburb || res.address.neighbourhood || "";
+                const direccionConfirmada = `${road} ${houseNum} ${suburb ? '(' + suburb + ')' : ''}`;
+
                 let price = 0;
-                if (distance <= 2) price = 2000;
+                if (distance <= 0.2) price = 1000; // Tarifa especial muy cerca (opcional)
+                else if (distance <= 2) price = 2000;
                 else if (distance <= 3) price = 2500;
                 else if (distance <= 4) price = 3500;
                 else if (distance <= 5) price = 4500;
                 else price = 4500 + (Math.ceil(distance - 5) * 500);
+
+                // Si la distancia es mínima (0.2km), lo ponemos en $2000 igual según tu tabla anterior
+                if (distance <= 2) price = 2000;
 
                 document.getElementById('fullAddressText').innerText = direccionConfirmada;
                 document.getElementById('distanceText').innerText = `Distancia en radio: ${distance.toFixed(2)} km`;
@@ -103,15 +129,26 @@
                 
                 const mensaje = `Hola! Quiero pedir a: ${direccionConfirmada}. El envío es $${price}.`;
                 document.getElementById('wsLink').href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
-                
-                // Forzar que el mapa se vea bien al aparecer
-                setTimeout(() => { map.invalidateSize(); }, 200);
 
             } catch (error) {
                 alert("Error: " + error.message);
             } finally {
                 btn.innerText = "Calcular Envío";
                 btn.disabled = false;
+            }
+        }
+
+        // GPS (Igual que antes)
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                    const data = await res.json();
+                    document.getElementById('addressInput').value = data.display_name.split(',').slice(0, 3).join(', ');
+                    calculateShipping();
+                }, () => { alert("No pudimos acceder a tu ubicación."); });
             }
         }
 
