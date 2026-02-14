@@ -12,7 +12,7 @@
         
         <label class="block text-gray-700 text-sm font-bold mb-2">Ingresá tu dirección:</label>
         <input type="text" id="addressInput" placeholder="Ej: Av. Almafuerte 500, Glew" 
-               class="w-full border p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm">
+               class="w-full border p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm text-sm">
         
         <button onclick="calculateShipping()" id="btnCalc"
                 class="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 transition shadow-lg">
@@ -20,16 +20,16 @@
         </button>
 
         <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200">
-            <div class="mb-4 pb-3 border-b border-green-200 text-center">
-                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1">Confirmación de domicilio:</p>
-                <p id="fullAddressText" class="text-sm text-gray-700 font-medium italic"></p>
+            <div class="mb-4 pb-3 border-b border-green-200">
+                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1 text-center">Confirmación de Ubicación:</p>
+                <p id="fullAddressText" class="text-sm text-gray-700 font-medium text-center leading-relaxed"></p>
             </div>
 
             <p id="distanceText" class="text-xs text-gray-500 text-center"></p>
             <p id="priceText" class="text-3xl font-black text-green-700 mt-2 text-center"></p>
             
-            <p class="text-[10px] text-gray-400 mt-2 text-center italic leading-tight">
-                *Precio estimado según distancia.
+            <p class="text-[10px] text-gray-400 mt-4 text-center italic leading-tight">
+                *El precio se calcula por radio directo (circunferencia) desde el local.
             </p>
             
             <a id="wsLink" href="#" target="_blank"
@@ -40,6 +40,7 @@
     </div>
 
     <script>
+        // Coordenadas de Cruz Varela 2178, Glew
         const ORIGIN = [-34.8872, -58.3845]; 
         const CELULAR_NEGOCIO = "541125565977"; 
 
@@ -55,18 +56,23 @@
             btn.disabled = true;
 
             try {
-                // Buscamos la dirección con detalles extras de entrecalles si están disponibles
+                // Pedimos detalles de dirección para evitar errores de calles iguales
                 const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${address}, Glew, Buenos Aires`);
                 const geoData = await geoRes.json();
                 
-                if (geoData.length === 0) throw new Error("No encontramos esa dirección exacta. Probá agregando 'Glew' o el nombre de la calle más conocida.");
+                if (geoData.length === 0) throw new Error("No encontramos esa dirección. Probá poniendo calle y número, seguido de 'Glew'.");
 
-                const firstResult = geoData[0];
-                const dest = [firstResult.lat, firstResult.lon];
+                const res = geoData[0];
+                const dest = [res.lat, res.lon];
+                
+                // CÁLCULO EN CIRCUNFERENCIA (Haversine - línea recta)
                 const distance = getDistance(ORIGIN[0], ORIGIN[1], parseFloat(dest[0]), parseFloat(dest[1]));
                 
-                // Extraemos la información de la dirección para confirmarle al cliente
-                const displayAddr = firstResult.display_name.split(',').slice(0, 3).join(',');
+                // Formamos una dirección descriptiva con barrio o zona si existe
+                const barrio = res.address.neighbourhood || res.address.suburb || res.address.city_district || "Glew";
+                const calle = res.address.road || "";
+                const numero = res.address.house_number || "";
+                const direccionConfirmada = `${calle} ${numero} (${barrio})`;
                 
                 let price = 0;
                 if (distance <= 2) price = 2000;
@@ -75,11 +81,11 @@
                 else if (distance <= 5) price = 4500;
                 else price = 4500 + (Math.ceil(distance - 5) * 500);
 
-                document.getElementById('fullAddressText').innerText = displayAddr;
-                document.getElementById('distanceText').innerText = `Distancia: ${distance.toFixed(1)} km`;
+                document.getElementById('fullAddressText').innerText = direccionConfirmada;
+                document.getElementById('distanceText').innerText = `Distancia en radio: ${distance.toFixed(2)} km`;
                 document.getElementById('priceText').innerText = `$${price.toLocaleString('es-AR')}`;
                 
-                const mensaje = `Hola! Quiero hacer un pedido a: ${displayAddr}. El costo de envío calculado es $${price}.`;
+                const mensaje = `Hola! Quiero pedir a: ${direccionConfirmada}. El envío es $${price}.`;
                 wsLink.href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
                 
                 resultDiv.classList.remove('hidden');
@@ -91,6 +97,7 @@
             }
         }
 
+        // Función matemática para distancia en línea recta (circunferencia)
         function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
