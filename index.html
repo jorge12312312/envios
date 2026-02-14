@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Envíos - Perú para ti</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-5">
+    <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6 border-t-4 border-red-600">
+        <h2 class="text-2xl font-bold text-red-600 mb-1 text-center">Perú para ti 🇵🇪</h2>
+        <p class="text-gray-500 mb-6 text-center text-xs uppercase tracking-widest">Glew - Envío Bonificado</p>
+        
+        <label class="block text-gray-700 text-sm font-bold mb-2">Ingresá tu dirección:</label>
+        <input type="text" id="addressInput" placeholder="Ej: Av. Almafuerte 500, Glew" 
+               class="w-full border p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm">
+        
+        <button onclick="calculateShipping()" id="btnCalc"
+                class="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 transition shadow-lg">
+            Calcular Envío
+        </button>
+
+        <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200">
+            <p id="distanceText" class="text-sm text-gray-600 text-center"></p>
+            <p id="priceText" class="text-3xl font-black text-green-700 mt-2 text-center"></p>
+            <p class="text-[10px] text-gray-400 mt-2 text-center italic leading-tight">
+                *Precio estimado sujeto a disponibilidad de la app al momento del pedido.
+            </p>
+            
+            <a id="wsLink" href="#" target="_blank"
+               class="mt-4 w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2 text-center">
+                Hacer pedido por WhatsApp
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const ORIGIN = [-34.8872, -58.3845]; 
+        const CELULAR_NEGOCIO = "541125565977"; 
+
+        async function calculateShipping() {
+            const address = document.getElementById('addressInput').value;
+            const btn = document.getElementById('btnCalc');
+            const resultDiv = document.getElementById('result');
+            const wsLink = document.getElementById('wsLink');
+            
+            if (!address) return alert("Por favor, ingresá una dirección.");
+            
+            btn.innerText = "Calculando...";
+            btn.disabled = true;
+
+            try {
+                const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${address}, Glew, Buenos Aires`);
+                const geoData = await geoRes.json();
+                
+                if (geoData.length === 0) throw new Error("Dirección no encontrada. Intentá agregando 'Glew' al final.");
+
+                const dest = [geoData[0].lat, geoData[0].lon];
+                const distance = getDistance(ORIGIN[0], ORIGIN[1], parseFloat(dest[0]), parseFloat(dest[1]));
+                
+                let price = 0;
+                if (distance <= 2) price = 2000;
+                else if (distance <= 3) price = 2500;
+                else if (distance <= 4) price = 3500;
+                else if (distance <= 5) price = 4500;
+                else price = 4500 + (Math.ceil(distance - 5) * 500);
+
+                document.getElementById('distanceText').innerText = `Distancia: ${distance.toFixed(1)} km`;
+                document.getElementById('priceText').innerText = `$${price.toLocaleString('es-AR')}`;
+                
+                const mensaje = `Hola! Quiero hacer un pedido a esta dirección: ${address}. El costo de envío calculado es $${price}.`;
+                wsLink.href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
+                
+                resultDiv.classList.remove('hidden');
+            } catch (error) {
+                alert("Error: " + error.message);
+            } finally {
+                btn.innerText = "Calcular Envío";
+                btn.disabled = false;
+            }
+        }
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; 
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+    </script>
+</body>
+</html>
