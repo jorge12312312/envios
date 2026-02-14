@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calculadora de Envíos - Perú para ti</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map { height: 250px; width: 100%; border-radius: 8px; margin-top: 15px; border: 1px solid #ddd; }
+    </style>
 </head>
 <body class="bg-gray-100 p-5">
     <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6 border-t-4 border-red-600">
@@ -20,36 +25,41 @@
         </button>
 
         <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200">
-            <div class="mb-4 pb-3 border-b border-green-200">
-                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1 text-center">Confirmación de Domicilio:</p>
-                <p id="fullAddressText" class="text-sm text-gray-700 font-medium text-center leading-relaxed italic"></p>
+            <div class="mb-4 pb-3 border-b border-green-200 text-center">
+                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1">Confirmación de Ubicación:</p>
+                <p id="fullAddressText" class="text-sm text-gray-700 font-medium italic"></p>
             </div>
 
-            <p id="distanceText" class="text-xs text-gray-500 text-center"></p>
+            <div id="map"></div>
+
+            <p id="distanceText" class="text-xs text-gray-500 text-center mt-4"></p>
             <p id="priceText" class="text-3xl font-black text-green-700 mt-2 text-center"></p>
-            
-            <p class="text-[10px] text-gray-400 mt-4 text-center italic leading-tight">
-                *El precio se calcula por radio directo (circunferencia) desde nuestro local en Juan Cruz Varela 2178.
-            </p>
             
             <a id="wsLink" href="#" target="_blank"
                class="mt-4 w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2 text-center text-sm">
-                Pedir por WhatsApp
+                Confirmar Pedido por WhatsApp
             </a>
         </div>
     </div>
 
     <script>
-        // COORDENADAS CORREGIDAS PARA JUAN CRUZ VARELA 2178, GLEW
-        const ORIGIN_LAT = -34.8834979;
-        const ORIGIN_LON = -58.4032544;
+        const ORIGIN = [-34.8834979, -58.4032544]; // Juan Cruz Varela 2178
         const CELULAR_NEGOCIO = "541125565977"; 
+        let map, marker;
+
+        // Inicializamos el mapa centrado en el local
+        function initMap() {
+            map = L.map('map').setView(ORIGIN, 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+            L.marker(ORIGIN).addTo(map).bindPopup('Perú para ti').openPopup();
+        }
 
         async function calculateShipping() {
             const address = document.getElementById('addressInput').value;
             const btn = document.getElementById('btnCalc');
             const resultDiv = document.getElementById('result');
-            const wsLink = document.getElementById('wsLink');
             
             if (!address) return alert("Por favor, ingresá una dirección.");
             
@@ -60,21 +70,26 @@
                 const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${address}, Glew, Buenos Aires`);
                 const geoData = await geoRes.json();
                 
-                if (geoData.length === 0) throw new Error("No encontramos la dirección. Probá poniendo calle y número, seguido de 'Glew'.");
+                if (geoData.length === 0) throw new Error("No encontramos la dirección.");
 
                 const res = geoData[0];
-                const destLat = res.lat;
-                const destLon = res.lon;
+                const dest = [parseFloat(res.lat), parseFloat(res.lon)];
                 
-                // CÁLCULO EN CIRCUNFERENCIA (Radio directo)
-                const distance = getDistance(ORIGIN_LAT, ORIGIN_LON, parseFloat(destLat), parseFloat(destLon));
+                const distance = getDistance(ORIGIN[0], ORIGIN[1], dest[0], dest[1]);
                 
-                // Intentamos armar la dirección con zona/barrio para que sirva de referencia
-                const road = res.address.road || "";
-                const houseNum = res.address.house_number || "";
-                const suburb = res.address.suburb || res.address.neighbourhood || res.address.city_district || "";
-                const direccionConfirmada = `${road} ${houseNum} ${suburb ? '(' + suburb + ')' : ''}`;
+                // Mostrar resultados
+                resultDiv.classList.remove('hidden');
                 
+                // Si el mapa no existe, lo creamos. Si existe, lo movemos.
+                if (!map) {
+                    initMap();
+                }
+                
+                map.setView(dest, 18); // Zoom 18 para ver bien las entrecalles
+                if (marker) map.removeLayer(marker);
+                marker = L.marker(dest).addTo(map).bindPopup('Tu ubicación').openPopup();
+
+                const direccionConfirmada = res.display_name.split(',').slice(0, 3).join(', ');
                 let price = 0;
                 if (distance <= 2) price = 2000;
                 else if (distance <= 3) price = 2500;
@@ -87,9 +102,11 @@
                 document.getElementById('priceText').innerText = `$${price.toLocaleString('es-AR')}`;
                 
                 const mensaje = `Hola! Quiero pedir a: ${direccionConfirmada}. El envío es $${price}.`;
-                wsLink.href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
+                document.getElementById('wsLink').href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
                 
-                resultDiv.classList.remove('hidden');
+                // Forzar que el mapa se vea bien al aparecer
+                setTimeout(() => { map.invalidateSize(); }, 200);
+
             } catch (error) {
                 alert("Error: " + error.message);
             } finally {
@@ -98,7 +115,6 @@
             }
         }
 
-        // Función matemática para distancia en línea recta (Radio / Circunferencia)
         function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
