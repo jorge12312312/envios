@@ -20,28 +20,29 @@
         </button>
 
         <div id="result" class="mt-6 hidden p-4 bg-green-50 rounded-lg border border-green-200">
-            <div class="mb-4 pb-3 border-b border-green-200 text-center">
-                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1">Confirmación de Dirección:</p>
-                <p id="fullAddressText" class="text-sm text-gray-700 font-medium italic"></p>
-                <p class="text-[10px] text-gray-400 mt-1 italic leading-tight">
-                    (Verificá si el mapa detectó correctamente tu calle)
-                </p>
+            <div class="mb-4 pb-3 border-b border-green-200">
+                <p class="text-[10px] uppercase text-green-600 font-bold tracking-wider mb-1 text-center">Confirmación de Domicilio:</p>
+                <p id="fullAddressText" class="text-sm text-gray-700 font-medium text-center leading-relaxed italic"></p>
             </div>
 
             <p id="distanceText" class="text-xs text-gray-500 text-center"></p>
             <p id="priceText" class="text-3xl font-black text-green-700 mt-2 text-center"></p>
             
+            <p class="text-[10px] text-gray-400 mt-4 text-center italic leading-tight">
+                *El precio se calcula por radio directo (circunferencia) desde nuestro local en Juan Cruz Varela 2178.
+            </p>
+            
             <a id="wsLink" href="#" target="_blank"
                class="mt-4 w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2 text-center text-sm">
-                Confirmar Pedido por WhatsApp
+                Pedir por WhatsApp
             </a>
         </div>
     </div>
 
     <script>
-        // Coordenadas ULTRA PRECISAS de Cruz Varela 2178, Glew
-        const ORIGIN_LAT = -34.88716;
-        const ORIGIN_LON = -58.38442;
+        // COORDENADAS CORREGIDAS PARA JUAN CRUZ VARELA 2178, GLEW
+        const ORIGIN_LAT = -34.8834979;
+        const ORIGIN_LON = -58.4032544;
         const CELULAR_NEGOCIO = "541125565977"; 
 
         async function calculateShipping() {
@@ -52,48 +53,40 @@
             
             if (!address) return alert("Por favor, ingresá una dirección.");
             
-            btn.innerText = "Calculando ruta...";
+            btn.innerText = "Buscando...";
             btn.disabled = true;
 
             try {
-                // 1. Buscar ubicación
                 const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${address}, Glew, Buenos Aires`);
                 const geoData = await geoRes.json();
                 
-                if (geoData.length === 0) throw new Error("No se encontró la dirección.");
+                if (geoData.length === 0) throw new Error("No encontramos la dirección. Probá poniendo calle y número, seguido de 'Glew'.");
 
                 const res = geoData[0];
                 const destLat = res.lat;
                 const destLon = res.lon;
-
-                // 2. Cálculo por RUTA DE AUTO (Mejorado para evitar desvíos locos)
-                const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${ORIGIN_LON},${ORIGIN_LAT};${destLon},${destLat}?overview=false`);
-                const routeData = await routeRes.json();
-
-                let distanceKm;
-                if (routeData.code === 'Ok') {
-                    distanceKm = routeData.routes[0].distance / 1000;
-                } else {
-                    // Si falla el motor de rutas, usamos un cálculo de radio x 1.25 (promedio de calles en Glew)
-                    const airDistance = getAirDistance(ORIGIN_LAT, ORIGIN_LON, parseFloat(destLat), parseFloat(destLon));
-                    distanceKm = airDistance * 1.25;
-                }
-
-                // 3. Dirección mostrada (lo más detallado posible)
-                const displayAddr = res.display_name.split(',').slice(0, 3).join(', ');
+                
+                // CÁLCULO EN CIRCUNFERENCIA (Radio directo)
+                const distance = getDistance(ORIGIN_LAT, ORIGIN_LON, parseFloat(destLat), parseFloat(destLon));
+                
+                // Intentamos armar la dirección con zona/barrio para que sirva de referencia
+                const road = res.address.road || "";
+                const houseNum = res.address.house_number || "";
+                const suburb = res.address.suburb || res.address.neighbourhood || res.address.city_district || "";
+                const direccionConfirmada = `${road} ${houseNum} ${suburb ? '(' + suburb + ')' : ''}`;
                 
                 let price = 0;
-                if (distanceKm <= 2) price = 2000;
-                else if (distanceKm <= 3) price = 2500;
-                else if (distanceKm <= 4) price = 3500;
-                else if (distanceKm <= 5) price = 4500;
-                else price = 4500 + (Math.ceil(distanceKm - 5) * 500);
+                if (distance <= 2) price = 2000;
+                else if (distance <= 3) price = 2500;
+                else if (distance <= 4) price = 3500;
+                else if (distance <= 5) price = 4500;
+                else price = 4500 + (Math.ceil(distance - 5) * 500);
 
-                document.getElementById('fullAddressText').innerText = displayAddr;
-                document.getElementById('distanceText').innerText = `Distancia aproximada por calle: ${distanceKm.toFixed(2)} km`;
+                document.getElementById('fullAddressText').innerText = direccionConfirmada;
+                document.getElementById('distanceText').innerText = `Distancia en radio: ${distance.toFixed(2)} km`;
                 document.getElementById('priceText').innerText = `$${price.toLocaleString('es-AR')}`;
                 
-                const mensaje = `Hola! Quiero pedir a: ${displayAddr}. El envío es $${price}.`;
+                const mensaje = `Hola! Quiero pedir a: ${direccionConfirmada}. El envío es $${price}.`;
                 wsLink.href = `https://wa.me/${CELULAR_NEGOCIO}?text=${encodeURIComponent(mensaje)}`;
                 
                 resultDiv.classList.remove('hidden');
@@ -105,7 +98,8 @@
             }
         }
 
-        function getAirDistance(lat1, lon1, lat2, lon2) {
+        // Función matemática para distancia en línea recta (Radio / Circunferencia)
+        function getDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
